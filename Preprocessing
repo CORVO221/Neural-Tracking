@@ -1,0 +1,465 @@
+%% EXTRACT AND PREPROCESS DATA PROTOCOL 1 IDN PROJECT
+clear; close all; clc;
+
+%% settings
+
+% general settings
+params.subjects =37; % subject to process
+
+for t=1:length(params.subjects)
+% load(['d', num2str(params.subjects(t)), '.mat']);
+params.generateEnv = true; % generate envelopes from scratch (true) or load them (false)
+if params.generateEnv
+    % audio settings
+    params.fsInt1 = 10000; % original 10000        % intermediate sampling frequency for auditory filterbank
+    params.fsInt2 = 1000; % intermediate sampling frequency for filtering
+    params.spacing = 1.5; % spacing auditory filterbank
+    params.freqs = erbspacebw(50,5000,params.spacing)'; % original (50,5000,params.spacing)     % frequencies auditory filterbank
+end
+
+% HP filtering
+params.HP = 0.01; % cutoff frequency
+params.fs = 128; % final sampling frequency
+fs = params.fs;
+nbTrials = 8;
+
+if params.generateEnv
+    hpFilterAud = designfilt('highpassiir','FilterOrder',1,'PassbandFrequency',params.HP,'SampleRate',params.fsInt1);
+    gmtf = gammatonefir(params.freqs,params.fsInt1,[],params.spacing);
+%     gmtf = gammatonefir(params.freqs,params.fsInt1,[],params.spacing.*ones(size(params.freqs)));
+end
+
+%% loop over subjects
+
+%     fprintf('\n%s\n*** Processing subject %d/%d ***\n%s\n',repmat('-',1,40),s,length(params.subjects),repmat('-',1,40))
+
+    %% import data
+    data = pop_biosig(['P',num2str(params.subjects(t)),'.bdf']);
+    % channels
+    channels = struct2cell(data.chanlocs); channels = channels(1,:);
+    % extract EEG data and triggers
+    subject = params.subjects(t);
+%     EEG=data.data;
+    eeg = double(data.data(1:64,:));
+    eog = double(data.data(65:68,:));
+    if length(channels)==73
+    % for 73 channels
+    trigger = double(data.data(73,:));
+    else 
+    % for 79 channels,
+    trigger = double(data.data(75,:));
+    end
+    fsEEG = data.srate;
+    channels = struct2cell(data.chanlocs); channels = channels(1,:);
+    clear data;
+    %% rereference
+    
+
+    %% reject bad channels
+%     switch subject
+%         case 1
+%             eeg(strcmp(channels,'A28'),:) = [];
+%         case 2
+%             eeg(strcmp(channels,'B25'),:) = [];
+%         case 5
+%             eeg(strcmp(channels,'A28'),:) = [];
+%     end
+
+    %% filter between 1-9 Hz
+    hpFilterEEG = designfilt('highpassiir','FilterOrder',1,'PassbandFrequency',params.HP,'SampleRate',fsEEG);
+
+%     eeg = filtfilt(hpFilterEEG,eeg')';
+    % causal filtering
+    eeg = filtfilt(hpFilterEEG,eeg')';
+
+%     eog = filtfilt(hpFilterEEG,eog')';
+
+%     %% Normalize both EEG systems to same scale
+%     eegScalp = (eegScalp'-mean(eegScalp'))'./mean(std(eegScalp'));
+%     eegEar = (eegEar'-mean(eegEar'))'./mean(std(eegEar'));
+    
+    %% cut into trials
+
+    % interpret triggers
+    fpass = 5;
+    triggerFilt = lowpass(trigger,fpass,fsEEG);
+    triggerDiff = zscore(abs(diff(triggerFilt)));
+    [~,locs,width,~] = findpeaks(triggerDiff,'MinPeakHeight',20, 'WidthReference','halfheight');
+    locs = round(locs - width/5);
+    trialBegin = zeros(8,1); trialEnd = zeros(8,1);
+    if subject == 1
+        trialBegin(1) = locs(find(locs>60*fsEEG,1,'first'));
+    else
+        trialBegin(1) = locs(1);
+    end
+    % trial 1 is 5 minutes,
+    trialEnd(1) = trialBegin(1)+5*60*fsEEG-1;
+    for tr = 2:nbTrials
+        % trial 2-8 is 
+        trialBegin(tr) = locs(find(locs>trialEnd(tr-1)+60*fsEEG,1,'first')); % at least 1 minute after the end of each part
+        trialEnd(tr) = trialBegin(tr)+10*60*fsEEG-1;
+    end
+%     trialBegin([3,5,7,8]) = trialBegin([3,5,7,8])+4;
+%     trialEnd([3,5,7,8]) = trialEnd([3,5,7,8])+4;
+
+% special conditions
+      if subject == 7
+          trialBegin(8)=locs(find(locs>trialEnd(tr-1)+60*fsEEG,1,'first')+3);
+          trialEnd(tr) = trialBegin(tr)+10*60*fsEEG-1;
+      end
+      
+      if subject == 8
+          trialBegin(1)=locs(7);
+          trialEnd(1) = trialBegin(1)+5*60*fsEEG-1;
+      end
+      
+      if subject==11
+         trialBegin(1)=locs(8);
+         trialEnd(1) = trialBegin(1)+5*60*fsEEG-1;
+        for tr = 2:nbTrials
+        % trial 2-8 is 
+        trialBegin(tr) = locs(find(locs>trialEnd(tr-1)+60*fsEEG,1,'first')); % at least 1 minute after the end of each part
+        trialEnd(tr) = trialBegin(tr)+10*60*fsEEG-1;
+        end
+        trialBegin(8)=locs(83);
+        trialEnd(8) = trialBegin(8)+10*60*fsEEG-1;
+          
+      end
+      
+      if subject == 12
+          trialBegin(1)=locs(3);
+          trialEnd(1) = trialBegin(1)+5*60*fsEEG-1;
+      end
+      
+      if subject == 15
+          trialBegin(7)=locs(62);
+          trialEnd(7) = trialBegin(7)+10*60*fsEEG-1;
+      end      
+      
+      if subject == 17
+          trialBegin(6)=locs(51);
+          trialEnd(6) = trialBegin(6)+10*60*fsEEG-1;
+          
+          trialBegin(7)=locs(62);
+          trialEnd(7) = trialBegin(7)+10*60*fsEEG-1;
+      end  
+      
+      if subject == 19
+          trialBegin(7)=locs(62);
+          trialEnd(7) = trialBegin(7)+10*60*fsEEG-1;
+      end  
+      
+      if subject == 25
+          
+          trialBegin(2)=locs(7);
+          trialEnd(2) = trialBegin(2)+10*60*fsEEG-1;
+          
+          trialBegin(3)=locs(18);
+          trialEnd(3) = trialBegin(3)+10*60*fsEEG-1;
+          
+          trialBegin(4)=locs(29);
+          trialEnd(4) = trialBegin(4)+10*60*fsEEG-1;
+          
+          trialBegin(5)=locs(40);
+          trialEnd(5) = trialBegin(5)+10*60*fsEEG-1;          
+          
+          trialBegin(6)=locs(51);
+          trialEnd(6) = trialBegin(6)+10*60*fsEEG-1;          
+
+          trialBegin(7)=locs(62);
+          trialEnd(7) = trialBegin(7)+10*60*fsEEG-1;          
+          
+          trialBegin(8)=locs(73);
+          trialEnd(8) = trialBegin(8)+10*60*fsEEG-1;    
+          
+      end  
+
+      if subject == 27
+          trialBegin(7)=locs(62);
+          trialEnd(7) = trialBegin(7)+10*60*fsEEG-1;
+          
+          trialBegin(8)=locs(75);
+          trialEnd(8) = trialBegin(8)+10*60*fsEEG-1;          
+      end        
+      
+      if subject == 28
+          
+          trialBegin(2)=locs(7);
+          trialEnd(2) = trialBegin(2)+10*60*fsEEG-1;
+          
+          trialBegin(3)=locs(18);
+          trialEnd(3) = trialBegin(3)+10*60*fsEEG-1;
+          
+          trialBegin(4)=locs(29);
+          trialEnd(4) = trialBegin(4)+10*60*fsEEG-1;
+          
+          trialBegin(5)=locs(40);
+          trialEnd(5) = trialBegin(5)+10*60*fsEEG-1;          
+          
+          trialBegin(6)=locs(51);
+          trialEnd(6) = trialBegin(6)+10*60*fsEEG-1;          
+
+          trialBegin(7)=locs(62);
+          trialEnd(7) = trialBegin(7)+10*60*fsEEG-1;          
+          
+          trialBegin(8)=locs(73);
+          trialEnd(8) = trialBegin(8)+10*60*fsEEG-1;    
+          
+      end  
+        
+      if subject == 29
+          trialBegin(7)=locs(62);
+          trialEnd(7) = trialBegin(7)+10*60*fsEEG-1;
+        
+      end    
+      
+      if subject == 31
+          
+          trialBegin(2)=locs(7);
+          trialEnd(2) = trialBegin(2)+10*60*fsEEG-1;
+          
+          trialBegin(3)=locs(18);
+          trialEnd(3) = trialBegin(3)+10*60*fsEEG-1;
+          
+          trialBegin(4)=locs(29);
+          trialEnd(4) = trialBegin(4)+10*60*fsEEG-1;
+          
+          trialBegin(5)=locs(40);
+          trialEnd(5) = trialBegin(5)+10*60*fsEEG-1;          
+          
+          trialBegin(6)=locs(51);
+          trialEnd(6) = trialBegin(6)+10*60*fsEEG-1;          
+
+          trialBegin(7)=locs(62);
+          trialEnd(7) = trialBegin(7)+10*60*fsEEG-1;          
+          
+          trialBegin(8)=locs(73);
+          trialEnd(8) = trialBegin(8)+10*60*fsEEG-1;    
+          
+      end      
+      
+       if subject == 32
+                 
+          
+          trialBegin(6)=locs(51);
+          trialEnd(6) = trialBegin(6)+10*60*fsEEG-1;          
+
+          trialBegin(7)=locs(62);
+          trialEnd(7) = trialBegin(7)+10*60*fsEEG-1;          
+          
+          trialBegin(8)=locs(73);
+          trialEnd(8) = trialBegin(8)+10*60*fsEEG-1;    
+          
+       end     
+      
+       if subject == 33
+                 
+          
+          trialBegin(6)=locs(51);
+          trialEnd(6) = trialBegin(6)+10*60*fsEEG-1;          
+
+          trialBegin(7)=locs(62);
+          trialEnd(7) = trialBegin(7)+10*60*fsEEG-1;          
+          
+          trialBegin(8)=locs(73);
+          trialEnd(8) = trialBegin(8)+10*60*fsEEG-1;    
+          
+       end           
+
+      if subject == 34
+          
+          trialBegin(2)=locs(7);
+          trialEnd(2) = trialBegin(2)+10*60*fsEEG-1;
+          
+          trialBegin(3)=locs(18);
+          trialEnd(3) = trialBegin(3)+10*60*fsEEG-1;
+          
+          trialBegin(4)=locs(29);
+          trialEnd(4) = trialBegin(4)+10*60*fsEEG-1;
+          
+          trialBegin(5)=locs(40);
+          trialEnd(5) = trialBegin(5)+10*60*fsEEG-1;          
+          
+          trialBegin(6)=locs(51);
+          trialEnd(6) = trialBegin(6)+10*60*fsEEG-1;          
+
+          trialBegin(7)=locs(62);
+          trialEnd(7) = trialBegin(7)+10*60*fsEEG-1;          
+          
+          trialBegin(8)=locs(73);
+          trialEnd(8) = trialBegin(8)+10*60*fsEEG-1;    
+          
+      end          
+      if subject == 35
+          
+          
+          trialBegin(1)=locs(6);
+          trialEnd(1) = trialBegin(1)+5*60*fsEEG-1;
+          
+          trialBegin(2)=locs(12);
+          trialEnd(2) = trialBegin(2)+10*60*fsEEG-1;
+          
+          trialBegin(3)=locs(23);
+          trialEnd(3) = trialBegin(3)+10*60*fsEEG-1;
+          
+          trialBegin(4)=locs(34);
+          trialEnd(4) = trialBegin(4)+10*60*fsEEG-1;
+          
+          trialBegin(5)=locs(45);
+          trialEnd(5) = trialBegin(5)+10*60*fsEEG-1;          
+          
+          trialBegin(6)=locs(56);
+          trialEnd(6) = trialBegin(6)+10*60*fsEEG-1;          
+
+          trialBegin(7)=locs(67);
+          trialEnd(7) = trialBegin(7)+10*60*fsEEG-1;          
+          
+          trialBegin(8)=locs(78);
+          trialEnd(8) = trialBegin(8)+10*60*fsEEG-1;    
+          
+      end
+      
+      
+      
+    eegTrials = {};
+    for tr = 1:nbTrials
+%         assert(triggersScalp{2*tr-1}.code == 2 & triggersScalp{2*tr}.code == 3); % make sure begin and end trigger
+%         assert(triggersEar{2*tr-1}.code == 2 & triggersEar{2*tr}.code == 3);
+
+        % cut the EEG according to the triggers
+        eegTemp = eeg(:,trialBegin(tr):trialEnd(tr));
+%         eogTemp = eog(:,trialBegin(tr):trialEnd(tr));
+
+
+        % regress out EOG
+%         eegTemp = eegTemp - eegTemp*eogTemp'*inv(eogTemp*eogTemp')'*eogTemp;
+
+        % downsample and center
+%         eegTemp = downsample(eegTemp',fsEEG/params.fs);
+        eegTemp = resample(eegTemp',params.fs,fsEEG);
+%         eegTempScalp = eegTempScalp - mean(eegTempScalp,1); % center the EEG data
+
+%         % normalize both EEG systems to same scale
+%         eegTempScalp = eegTempScalp./median(std(eegTempScalp));
+%         eegTempEar = eegTempEar./median(std(eegTempEar));
+
+        % append scalp and ear EEG
+        eegTrials = [eegTrials;eegTemp];
+    end
+
+    %% extract corresponding stimuli    
+    if params.generateEnv
+        audioTrials = cell(nbTrials,1);
+        for tr = 1:length(audioTrials)
+            
+            % load the audio sequentially, no merging
+            audioFileName = ['audio', num2str(tr), '.mp4'];
+            [y,fsAudio] = audioread(audioFileName);
+
+            % stereo to mono
+            y = mean(y,2);
+            
+            % extract envelopes
+            env = extractEnvelope(y,fsAudio,params.fs,params.fsInt1,params.fsInt2,gmtf,hpFilterAud);
+
+            % trim the data
+            minLen = min(size(eegTrials{tr},1),length(env));
+            eegTrials{tr} = eegTrials{tr}(1:minLen,:); env = env(1:minLen); 
+            audioTrials{tr} = env;
+            % save memory
+            clear env;
+        end
+%         save(['stimuli',num2str(subject)],'fs','audioTrials','subject');
+    else
+        load(['stimuli',num2str(subject)]);
+        for tr = 1:length(eegTrials)
+            % trim the data
+            minLen = min(size(eegTrials{tr},1),size(audioTrials{tr},1));
+            eegTrials{tr} = eegTrials{tr}(1:minLen,:); audioTrials{tr} = audioTrials{tr}(1:minLen,:);
+        end
+    end
+
+    %% extract modulations
+%         audioTrils{tr}=eegTrials{tr}; % ??
+        group = 2;
+        modulations = cell(nbTrials,1);
+        modulations{1} = zeros(length(eegTrials{1}),1);
+        modulations{2} = zeros(length(eegTrials{2}),1);
+        modulations{2}((1*40*fs+1):(2*60*fs+10*fs)) = 1;
+        modulations{2}((8*60*fs+1):(9*60*fs+30*fs)) = 1;
+        modulations{3} = zeros(length(eegTrials{3}),1);
+        modulations{3}((30*fs+1):(2*60*fs)) = -2;
+        modulations{3}((7*60*fs+30*fs+1):(9*60*fs)) = -2;
+        modulations{4} = zeros(length(eegTrials{4}),1);
+        modulations{5} = zeros(length(eegTrials{5}),1);
+        modulations{5}((30*fs+1):(2*60*fs)) = -1;
+        modulations{5}((3*60*fs+30*fs+1):(5*60*fs)) = -1;
+        modulations{5}((7*60*fs+30*fs+1):(9*60*fs)) = -1;
+        modulations{6} = zeros(length(eegTrials{6}),1);
+        modulations{6}((6*60*fs+30*fs+1):(8*60*fs)) = 1;
+        modulations{7} = zeros(length(eegTrials{7}),1);
+        modulations{7}((5*60*fs+30*fs+1):(7*60*fs)) = -2;
+        % additional dual baseline
+        % -3=dual baseline
+        modulations{8} = -3*ones(length(eegTrials{8}),1);
+
+        
+        baseline = cell(nbTrials,1);
+        baseline{1} = ones(length(eegTrials{1}),1);
+        baseline{2} = zeros(length(eegTrials{2}),1);
+        baseline{2}((3*60*fs+0*fs+1):(7*60*fs+0*fs)) = 1;
+        baseline{3} = zeros(length(eegTrials{3}),1);
+        baseline{3}((2*60*fs+30*fs+1):(6*60*fs+30*fs)) = 1;
+        baseline{4} = zeros(length(eegTrials{4}),1);
+        baseline{4}((0*60*fs+0*fs+1):(6*60*fs+0*fs)) = 1;
+        baseline{5} = zeros(length(eegTrials{5}),1);
+        baseline{6} = zeros(length(eegTrials{6}),1);
+        baseline{6}((0*fs+1):(4*60*fs+0*fs)) = 1;
+        baseline{7} = zeros(length(eegTrials{7}),1);
+        baseline{7}((0*fs+1):(4*60*fs+0*fs)) = 1;
+ 
+%     load(['modulations-group-',num2str(group),'.mat']); % 1 = enhancing, -1 = decreasing, -2 = diverting
+%     load(['baseline-group-',num2str(group),'.mat']);
+
+if subject == 3 % something went wrong during the last trials of subject 3
+    eegTrials{end} = eegTrials{end}(1:5*60*fs,:);
+    audioTrials{end} = audioTrials{end}(1:5*60*fs,:);
+    modulations{end} = modulations{end}(1:5*60*fs,:);
+    baseline{end} = baseline{end}(1:5*60*fs,:);
+
+end
+
+     
+    %% save the data
+    save(['dataSubject',num2str(subject)],'eegTrials','fs','channels','audioTrials','subject','group','modulations','baseline');
+% without audioTrials
+% save(['dataSubject',num2str(subject)],'eegTrials','fs','channels','subject','group','modulations','baseline');
+
+end
+
+function envelope = extractEnvelope(y,fsAudio,fs,fsInt1,fsInt2,gmtf,bpFilter)
+% Extract the envelope from a given audio signal y.
+
+    y = resample(y,fsInt1,fsAudio); % resample to lower frequency
+    y = real(ufilterbank(y,gmtf,1)); y = reshape(y,size(y,1),[]); % apply filterbank
+    y = abs(y).^0.6; % compute subband envelopes
+    y = sum(y,2); % sum subband envelopes
+%     y = resample(y,fsInt2,fsInt1); % resample to lower frequency
+
+%     envelope = y;
+%     envelope = resample(y,fs,fsInt1); % resample to lower frequency
+
+    
+    Nr = min(round(length(y)*0.1),100); % append signal parts to avoid edge effects
+    y = [2*y(1)-flipud(y(2:Nr+1));y;2*y(end)-flipud(y(end-Nr+1:end))];
+%     y = filtfilt(bpFilter.numerator,1,y); y = y(Nr+1:end-Nr); % bandpass filter
+%     y = filtfilt(bpFilter,y);
+    y = filtfilt(bpFilter,y);
+    y = y(Nr+1:end-Nr); % bandpass filter
+    y = resample(y,fs,fsInt1); % resample with anti-aliasing
+%     y = downsample(y,fsInt2/fs); % resample without anti-aliasing
+    envelope = y-mean(y); % center the speech envelope
+
+end
+
+
