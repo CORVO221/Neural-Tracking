@@ -1,0 +1,778 @@
+close all
+clc
+clear
+%% Load data
+params.subjects = [7:29,31:37];
+
+nbsub=length(params.subjects);
+
+corpersb=zeros(4,nbsub);
+for t=1:length(params.subjects)
+% load(['d', num2str(params.subjects(t)), '.mat']);
+filename = ['dataSubject', num2str(params.subjects(t)), '.mat']; % Concaten% 创建一个图形窗口
+load(filename); % Load the file using the concatenated string
+% load('dataSubject7.mat');
+% load('stimuli2');
+% window length(time)60s, sampling rate 128 Hz, so the window length
+% L=128*60=7680
+
+% clear audioTrials;
+% load('Envelope.mat');
+%% filtering and resampling
+% deltaband
+
+
+bpf = designfilt('bandpassiir','FilterOrder',4, ...
+    'HalfPowerFrequency1',0.1,'HalfPowerFrequency2',4, ...
+    'SampleRate',fs);
+
+bpfe = designfilt('bandpassiir','FilterOrder',4, ...
+    'HalfPowerFrequency1',0.1,'HalfPowerFrequency2',4, ...
+    'SampleRate',fs);
+
+bpf1 = designfilt('bandpassiir','FilterOrder',4, ...
+    'HalfPowerFrequency1',0.1,'HalfPowerFrequency2',4, ...
+    'SampleRate',fs);
+% new sampling rate
+fsNew=16;
+ratio=fs/fsNew;
+fs=fsNew;
+
+%% bandpass by trial 
+eeg=[];
+eegtemp=[];
+audio=[];
+audiotemp=[];
+mod=[];
+modtemp=[];
+for i=1:8
+    eegtemp=eegTrials{i};
+    audiotemp=audioTrials{i};   
+
+
+    % filtering
+    eegtemp=filtfilt(bpf,eegtemp);
+    audiotemp=filtfilt(bpf,audiotemp);
+
+    % downsampling
+    eegtemp=downsample(eegtemp,ratio)';
+    audiotemp=downsample(audiotemp,ratio)';
+
+
+
+    eeg=[eeg, eegtemp];
+    audio=[audio, audiotemp];
+
+    modtemp=modulations{i}';
+    modtemp=modtemp(1:ratio:end);
+    mod=[mod modtemp];
+
+end
+
+
+
+
+
+
+
+    
+%% window
+% Test
+% window length/sec
+win=30;
+% window length/frame
+L=win*fs;
+% audio length
+audlength=length(audio)/L;
+
+
+
+  
+%% extract conditions
+% baseline
+base=find(mod==0);
+% enhancing
+enh=find(mod==1);
+% dual taske
+dua=find(mod==-2);
+dub=find(mod==-3);
+dua=[dua dub];
+% du=[du,dub];
+% base=[base dub];
+% distraction
+dis=find(mod==-1);
+
+
+
+basetr=[baseline{1}',baseline{2}',baseline{3}',baseline{4}',baseline{5}',baseline{6}',baseline{7}'];
+basetr_origin=[baseline{1}',baseline{2}',baseline{3}',baseline{4}',baseline{5}',baseline{6}',baseline{7}'];
+
+basetr=basetr(1:ratio:end);
+
+
+
+% attention baseline training set
+% basetr=[baseline{1}',baseline{2}',baseline{3}',baseline{4}',baseline{5}',baseline{6}',baseline{7}'];
+% basetr=basetr(1:ratio:end);
+trset=find(basetr==1);
+
+
+% diverting baseline training set
+% dutr=dub(1:4320);
+dutr=dub;
+dutr1=dutr(1:4800);
+dutr2=dutr(4801:end);
+% calidu=dub(4321:end);
+
+
+%% important
+% attention baseline
+eegtr=eeg(:,trset);
+audiotr=audio(:,trset);
+
+% audiotr=audiotr(audiotr>0);
+% eegtr=eegtr(:,audiotr>0);
+% audiotr(audiotr > 0) = 0;  % 将 a 中所有大于 0 的元素设为 0
+
+
+% diverting baseline
+eegdutr=eeg(:,dutr);
+eegdutr1=eeg(:,dutr1);
+eegdutr2=eeg(:,dutr2);
+
+audiodutr=audio(dutr);
+audiodutr1=audio(dutr1);
+audiodutr2=audio(dutr2);
+
+% %% upper 
+% 
+% eegdutrg0=eegdutr(:,audiodutr>0);
+% %% use p 7 to train
+% eegtr=[eegtr eegdutrg0];
+% audiotr=[audiotr zeros(1,size(eegdutrg0,2))];
+
+% 
+% % 使用 pwelch 计算功率谱密度
+% [pxx, f] = pwelch(eegtr(2,:), [], [], [], fs);
+% [ps,f2]=pwelch(audiotr, [], [], [], fs);
+% % 绘图
+% figure;
+% plot(f, 10*log10(pxx));
+% hold on;
+% plot(f2, 10*log10(ps));
+% 
+% xlabel('频率 (Hz)');
+% ylabel('功率谱密度 (dB/Hz)');
+% title('功率谱密度');
+% grid on;
+
+
+
+
+
+% attention test set
+% just the disjoint set of the test set
+% teset=setdiff(base,test_compl);
+teset=setdiff(base,train_origin);
+
+eegte=eeg(:,teset);
+audiote=audio(:,teset);
+
+% audiote(audiote > 0) = 0;  % 将 a 中所有大于 0 的元素设为 0
+
+
+%% construct the time-lagged data matrix
+
+
+% time lag
+% for simplicity, lets use 0-500ms
+% number of lag 0.5*8+1=5
+% time lag
+tr=0.5;
+lag=tr*fs+1;
+% lag=8;
+
+% number of channels
+Ch=64;
+
+
+
+%% att EEG matrix
+% time instances
+T=length(audiotr);
+% data matrix
+Xtr=zeros(T,Ch*lag);
+for c=1:Ch
+ 
+    Xc=zeros(T,lag);
+    for l=1:lag
+        xc=[eegtr(c,l:T) zeros(1,l-1)]';  
+        Xc(:,l)=xc;
+    end
+    Xtr(:,1+(c-1)*lag:c*lag)=Xc;
+
+end
+
+%% unatt EEG matrix
+% time instances
+T=length(dutr);
+% data matrix
+Xdutr=zeros(T,Ch*lag);
+for c=1:Ch
+ 
+    Xc=zeros(T,lag);
+    for l=1:lag
+        xc=[eegdutr(c,l:T) zeros(1,l-1)]';  
+        Xc(:,l)=xc;
+    end
+    Xdutr(:,1+(c-1)*lag:c*lag)=Xc;
+
+end
+
+% % time instances
+% T=length(dutr2);
+% % data matrix
+% Xdutr2=zeros(T,Ch*lag);
+% for c=1:Ch
+%  
+%     Xc=zeros(T,lag);
+%     for l=1:lag
+%         xc=[eegdutr2(c,l:T) zeros(1,l-1)]';  
+%         Xc(:,l)=xc;
+%     end
+%     Xdutr2(:,1+(c-1)*lag:c*lag)=Xc;
+% 
+% end
+
+%% all matrices/vectors needed
+Xatt=Xtr;
+
+
+Xunatt=Xdutr;
+% Xunatt2=Xdutr2;
+satt=audiotr';
+sunatt=audiodutr';
+% sunatt2=audiodutr2';
+
+
+
+%% Att decoder
+
+% % without discriminative constraint
+lambda=0;
+datt=inv(Xatt'*Xatt+lambda*eye(576))*Xatt'*satt;
+
+% discriminative 
+% datt=inv(Xatt'*Xatt)*(Xatt'*satt-(sunatt'*Xunatt*inv(Xatt'*Xatt)*Xatt'*satt/(sunatt'*Xunatt*inv(Xatt'*Xatt)*Xunatt'*sunatt)*Xunatt'*sunatt));
+
+
+DATT(:,t)=datt;
+sh=Xatt*datt;
+
+% plot(satt(500:600));
+% hold on;
+% plot(sh(500:600));
+
+
+error2=(satt-sh).^2;
+
+% W=diag(1./(error2));
+% % W=diag(error2);
+% 
+% datt=inv(Xatt'*W*Xatt)*Xatt'*W*satt;
+
+% stem(satt.*satt,sh.*sh);
+% stem(sh.*sh,error2);
+% stem(satt.*satt,error2);
+
+%% Unatt decoder
+% dunatt=inv(Xunatt'*Xunatt)*(Xunatt'*sunatt-(satt'*Xatt*inv(Xunatt'*Xunatt)*Xunatt'*sunatt/(satt'*Xatt*inv(Xunatt'*Xunatt)*Xatt'*satt)*Xatt'*satt));
+% % % without discriminative constraint
+dunatt=inv(Xunatt'*Xunatt)*Xunatt'*sunatt;
+
+
+%% replace by universal decoder
+% datt=d_universal;
+%% window
+% Test
+% window length/sec
+% win=30;
+% window length/frame
+L=win*fs;
+%% baseline 
+
+% number of windows
+numba=length(teset)/L;
+% windows;
+% audba=zeros(L,1,numba);
+eegba=zeros(L,64*lag,numba);
+testeeg=zeros(64,L,numba);
+testaud=zeros(1,L,numba);
+% original eeg and audio segment, without time lag
+for i=1:numba
+    testeeg(:,:,i)=eegte(:,(i-1)*L+1:i*L);
+    testaud(:,:,i)=audiote(:,(i-1)*L+1:i*L);
+end
+
+% number of channels
+Ch=64;
+% time instances L
+for k=1:numba
+% data matrix
+Xba=zeros(L,Ch*lag);
+eegte= testeeg(:,:,k);
+for c=1:Ch
+ 
+    Xc=zeros(L,lag);
+    for l=1:lag
+        xc=[eegte(c,l:L) zeros(1,l-1)]';  
+        Xc(:,l)=xc;
+    end
+    Xba(:,1+(c-1)*lag:c*lag)=Xc;
+    eegba(:,:,k)=Xba;
+
+end
+end
+% individual stimulus correlation
+iscorbase=zeros(1,numba);
+for i=1:numba
+%     iscorbase(i)=testaud(:,:,i)*eegba(:,:,i)*d/(norm(testaud(:,:,i))*norm(eegba(:,:,i)*d));  
+     % a=corr(testaud(:,:,i)',eegba(:,:,i)*datt);
+     % b=corr(testaud(:,:,i)'+savg',eegba(:,:,i)*datt);
+
+
+     
+     audio1=testaud(:,:,i)'; 
+%      audio2= sign(audio1) .* log(1 + abs(audio1));
+
+     sh=eegba(:,:,i)*datt;
+     
+     dspr=1;
+%      c=corr(audio1(1:dspr:480),sh(1:dspr:480));
+     
+     d=sh'*sh;
+%     edge = cat(1, 0, sh);
+%     edge = diff(edge);
+%     edge(edge < 0) = 0;
+%     sh=edge;
+
+%     X=[Xatt;eegba(:,:,i)];
+%     s=[satt;audio1];
+%     d=inv(X'*X)*X'*s;
+%     sh=eegba(:,:,i)*d;
+%     
+%     c=corr(sh,audio1);
+   
+     
+%      Sh=zeros(win*fs,lag);
+%      lags=21;
+%      for l=1:lags
+%     % causal part
+%     if l<=(lags-1)/2+1
+%     sc=[zeros(1,(lags-1)/2-l+1)'; sh(1:length(sh)-((lags-1)/2-l+1)) ];   
+%     % anti-causal part
+%     else 
+%     sc=[sh((l-(lags-1)/2):length(sh)); zeros(1,(l-(lags-1)/2-1))' ];  
+%     end
+%     Sh(:,l)=sc;    
+%     end      
+%     wsh=pinv(Sh)*audio1;
+%     sal=Sh*wsh;
+
+    % plot(audio1);
+    % hold on;
+    % plot(sh);
+    % hold on;
+    % legend('original audio', 'reconstructed audio');
+
+    
+    % audio1_g0=audio1(audio1>0);
+    % audio1_l0=audio1(audio1<0);
+    % sh_g0=sh(audio1>0);
+    % sh_l0=sh(audio1<0);
+    % b=corr(audio1_g0,sh_g0);
+    % c=corr(audio1_l0,sh_l0);
+    
+    a_q=audio1;
+    a_l=audio1;
+    a_q(a_q > 0) = 0;
+    a_l(a_l<0)=0;
+
+    % a=corr(sh,a_q)+corr(sh,a_l);
+    a=corr(sh,audio1);
+
+    
+    % weighted correlation
+    wei=audio1>0;
+    % wei=-wei+2;
+     wei=5*(-wei+1)+1;
+
+    cw=wcorr(sh,audio1,wei);
+
+
+
+    iscorbase(i)=a;
+    % a
+    % b
+    % c
+    % RMS
+    RMS(i,1)=rms(audio1);
+    RMS2(i,1)=rms(a_q);
+    RMS3(i,1)=rms(a_l);
+    
+
+end
+
+%% distraction
+
+eegdis=eeg(:,dis);
+auddis=audio(:,dis);
+
+% number of windows
+numdis=length(auddis)/L;
+% windows;
+sdis=zeros(L,1,numdis);
+Xdis=zeros(L,64*lag,numdis);
+% eeg and audio segment without time lag
+diseeg=zeros(64,L,numdis);
+disaud=zeros(1,L,numdis); %same as sdis
+for i=1:numdis
+    diseeg(:,:,i)=eegdis(:,(i-1)*L+1:i*L);
+    disaud(:,:,i)=auddis(:,(i-1)*L+1:i*L);
+end
+
+% time lag
+% for simplicity, lets use 0-500ms
+
+% number of channels
+Ch=64;
+% time instances L
+for k=1:numdis
+% data matrix
+Xdi=zeros(L,Ch*lag);
+eegdi= diseeg(:,:,k);
+for c=1:Ch
+ 
+    Xc=zeros(L,lag);
+    for l=1:lag
+        xc=[eegdi(c,l:L) zeros(1,l-1)]';  
+        Xc(:,l)=xc;
+    end
+    Xdi(:,1+(c-1)*lag:c*lag)=Xc;
+    Xdis(:,:,k)=Xdi;
+
+end
+end
+% individual stimulus correlation
+iscordis=zeros(1,numdis);
+for i=1:numdis
+%     iscorbase(i)=testaud(:,:,i)*testeeg(:,:,i)'*d/(norm(testaud(:,:,i))*norm(testeeg(:,:,i)'*d));  
+     a=corr(disaud(:,:,i)',Xdis(:,:,i)*datt);
+     b=corr(disaud(:,:,i)'+savg',Xdis(:,:,i)*datt);
+     
+     audio1=disaud(:,:,i)';
+     sh=Xdis(:,:,i)*datt;
+     c=corr(audio1(1:dspr:480),sh(1:dspr:480));
+     
+     
+     iscordis(i)=a;
+
+end
+
+%% enhancing
+
+ eegenh=eeg(:,enh);
+audenh=audio(:,enh);
+
+% number of windows
+numenh=length(audenh)/L;
+% windows;
+senh=zeros(L,1,numenh);
+Xenh=zeros(L,64*lag,numenh);
+% eeg and audio segment without time lag
+enheeg=zeros(64,L,numenh);
+enhaud=zeros(1,L,numenh); %same as sdis
+for i=1:numenh
+    enheeg(:,:,i)=eegenh(:,(i-1)*L+1:i*L);
+    enhaud(:,:,i)=audenh(:,(i-1)*L+1:i*L);
+end
+
+% number of channels
+Ch=64;
+% time instances
+Tenh=L;
+for k=1:numenh
+% data matrix
+Xen=zeros(Tenh,Ch*lag);
+eegen= enheeg(:,:,k);
+for c=1:Ch
+ 
+    Xc=zeros(Tenh,lag);
+    for l=1:lag
+        xc=[eegen(c,l:Tenh) zeros(1,l-1)]';  
+        Xc(:,l)=xc;
+    end
+    Xen(:,1+(c-1)*lag:c*lag)=Xc;
+    Xenh(:,:,k)=Xen;
+
+end
+end
+% individual stimulus correlation
+iscorenh=zeros(1,numenh);
+for i=1:numenh
+%     iscorbase(i)=testaud(:,:,i)*testeeg(:,:,i)'*d/(norm(testaud(:,:,i))*norm(testeeg(:,:,i)'*d));  
+     a=corr(enhaud(:,:,i)',Xenh(:,:,i)*datt);
+     b=corr(enhaud(:,:,i)'+savg',Xenh(:,:,i)*datt);
+     
+     audio1=enhaud(:,:,i)';
+     sh=Xenh(:,:,i)*datt;
+     
+     
+     c=corr(audio1(1:dspr:480),sh(1:dspr:480));     
+     
+     iscorenh(i)=a;
+end
+
+
+%% dua
+
+eegdua=eeg(:,dua);
+auddua=audio(:,dua);
+
+% number of windows
+numdua=length(auddua)/L;
+% windows;
+sdua=zeros(L,1,numdua);
+Xdua=zeros(L,64*lag,numdua);
+% eeg and audio segment without time lag
+duaeeg=zeros(64,L,numdua);
+duaaud=zeros(1,L,numdua); %same as sdis
+for i=1:numdua
+    duaeeg(:,:,i)=eegdua(:,(i-1)*L+1:i*L);
+    duaaud(:,:,i)=auddua(:,(i-1)*L+1:i*L);
+end
+
+% time lag
+% for simplicity, lets use 0-500ms
+% number of channels
+Ch=64;
+% time instances
+Tdua=L;
+for k=1:numdua
+% data matrix
+Xdu=zeros(Tdua,Ch*lag);
+eegdu= duaeeg(:,:,k);
+for c=1:Ch
+ 
+    Xc=zeros(Tdua,lag);
+    for l=1:lag
+        xc=[eegdu(c,l:Tdua) zeros(1,l-1)]';  
+        Xc(:,l)=xc;
+    end
+    Xdu(:,1+(c-1)*lag:c*lag)=Xc;
+    Xdua(:,:,k)=Xdu;
+
+end
+end
+% individual stimulus correlation
+iscordua=zeros(1,numdua);
+for i=1:numdua
+%     iscorbase(i)=testaud(:,:,i)*testeeg(:,:,i)'*d/(norm(testaud(:,:,i))*norm(testeeg(:,:,i)'*d));  
+
+
+     a=corr(duaaud(:,:,i)',Xdua(:,:,i)*datt);
+     % b=corr(duaaud(:,:,i)'+savg',Xdua(:,:,i)*datt);
+     
+     sh=Xdua(:,:,i)*datt;
+     audio1=duaaud(:,:,i)';
+     
+     % c=corr(audio1(1:dspr:480),sh(1:dspr:480));     
+     
+%     X=[Xatt;Xdua(:,:,i)];
+%     s=[satt;audio1];
+%     d=inv(X'*X)*X'*s;
+%     sh=Xdua(:,:,i)*d;
+    
+    % c=corr(sh,audio1);
+
+     d=sh'*sh;   
+
+
+     % s_g0=audio1(audio1>0);
+     % s_l0=audio1(audio1<0);
+     % sh_g0=sh(audio1>0);
+     % sh_l0=sh(audio1<0);
+     % b=corr(s_g0,sh_g0);
+     % c=corr(s_l0,sh_l0);
+    
+
+     a_q=audio1;
+     a_l=audio1;
+     a_q(a_q > 0) = 0;
+     a_l(a_l<0)=0;
+     % a=corr(sh,a_q)+corr(sh,a_l);
+     a=corr(sh,audio1);
+
+
+
+     % weighted correlation
+     wei=audio1>0;
+     % wei=-wei+2;
+     wei=5*(-wei+1)+1;
+     cw=wcorr(sh,audio1,wei);
+
+     iscordua(i)=a;
+
+
+
+
+    
+%     edge = cat(1, 0, sh);
+%     edge = diff(edge);
+%     edge(edge < 0) = 0;
+%     sh=edge;
+% 
+    % plot(audio1(1:100));
+%     hold on;
+%     plot(sh(1:1:100));
+
+
+     
+end
+
+%% all corr
+% corall(:,t)=[iscorbase(1) iscorenh(1:3) iscorbase(2:5) iscorenh(4:6) iscorbase(6:7) iscordua(1:3) iscorbase(8:10) iscordua(4:6) iscorbase(11:21) iscordis(1:3) iscorbase(22:24) iscordis(4:6) iscorbase(25:29) iscordis(7:9) iscorbase(30:36) iscorenh(7:9) iscorbase(37:43) iscordua(7:9) iscorbase(44:49) iscordua(10:29)]';
+
+
+
+%% plot
+rows=1;
+cols=1;
+rows = 15;
+cols = 2;
+
+subplot(rows, cols, t);
+
+baseline=iscorbase;
+distracting=iscordis; 
+enhancing=iscorenh; 
+dual_task=iscordua; 
+
+    % Calculate means
+    mean_baseline = mean(baseline);
+    mean_enhancing = mean(enhancing);
+    mean_distracting = mean(distracting);
+    mean_dual_task = mean(dual_task);
+
+    % Convert row vectors to column vectors for concatenation
+    baseline = baseline(:);
+    enhancing = enhancing(:);
+    distracting = distracting(:);
+    dual_task = dual_task(:);
+
+    % Combine data into a single array
+    % only consider baseline and dual_task
+    all_data = [baseline;dual_task];
+
+    % Create a group variable
+    group = [repmat({'Baseline'}, length(baseline), 1); 
+%              repmat({'Enhancing'}, length(enhancing), 1); 
+%              repmat({'Distracting'}, length(distracting), 1); 
+             repmat({'Dual Task'}, length(dual_task), 1)];
+
+    % Create horizontal boxplot
+    boxplot(all_data, group, 'orientation', 'horizontal');
+
+    % Hold on to add means and scatter plot
+    hold on;
+
+    % Plot scatter points
+    scatter(baseline, repmat(1, length(baseline), 1), 'filled');
+%     scatter(enhancing, repmat(2, length(enhancing), 1), 'filled');
+%     scatter(distracting, repmat(3, length(distracting), 1), 'filled');
+    scatter(dual_task, repmat(2, length(dual_task), 1), 'filled');
+
+    % Plot means as stars
+    plot(mean_baseline, 1, 'r*', 'MarkerSize', 10, 'DisplayName', 'Mean Baseline');
+%     plot(mean_enhancing, 2, 'k*', 'MarkerSize', 10, 'DisplayName', 'Mean Enhancing');
+%     plot(mean_distracting, 3, 'b*', 'MarkerSize', 10, 'DisplayName', 'Mean Distracting');
+    plot(mean_dual_task, 2, 'm*', 'MarkerSize', 10, 'DisplayName', 'Mean Dual Task');
+
+% Add text labels for means
+text(mean_baseline, 1, sprintf('%.4f', mean_baseline), 'HorizontalAlignment', 'left', 'VerticalAlignment', 'bottom', 'Color', 'r');
+% text(mean_enhancing, 2, sprintf('%.4f', mean_enhancing), 'HorizontalAlignment', 'left', 'VerticalAlignment', 'bottom', 'Color', 'k');
+% text(mean_distracting, 3, sprintf('%.4f', mean_distracting), 'HorizontalAlignment', 'left', 'VerticalAlignment', 'bottom', 'Color', 'b');
+text(mean_dual_task, 2, sprintf('%.4f', mean_dual_task), 'HorizontalAlignment', 'left', 'VerticalAlignment', 'bottom', 'Color', 'm');
+
+    % Add title and grid
+    title(['Subject ' num2str(params.subjects(t))]);
+    grid on;
+
+
+
+% 找到蓝色箱线的句柄
+blue_boxes = findobj('Tag', 'Box', 'Color', 'b');
+
+% 删除蓝色箱线
+delete(blue_boxes);
+
+corpersb(:,t)=[mean_baseline ; mean_enhancing; mean_distracting; mean_dual_task];
+
+
+BASELINE(:,t)=baseline;
+ENHANCING(:,t)=enhancing;
+DISTRACTING(:,t)=distracting;
+DUAL_TASK(:,t)=dual_task;
+
+% between baseline and dual task
+FDR(t)=(mean(baseline)-mean(dual_task))^2/(var(baseline)+var(dual_task));
+FDR_NUM(t)=(mean(baseline)-mean(dual_task))^2;
+FDR_DEN(t)=(var(baseline)+var(dual_task));
+
+%% segment FDR
+baseline1=baseline(1:16);
+baseline2=baseline(17:32);
+baseline3=baseline(33:49);
+
+FDRS(t,1)=(mean(baseline1)-mean(dual_task))^2/(var(baseline1)+var(dual_task));
+FDRS(t,2)=(mean(baseline2)-mean(dual_task))^2/(var(baseline2)+var(dual_task));
+FDRS(t,3)=(mean(baseline3)-mean(dual_task))^2/(var(baseline3)+var(dual_task));
+FDRS=FDRS';
+
+
+
+end
+
+%% necessary
+corpersb=corpersb';
+MEAN_BASELINE=mean(BASELINE,2);
+MEAN_ENHANCING=mean(ENHANCING,2);
+MEAN_DISTRACTING=mean(DISTRACTING,2);
+MEAN_DUAL_TASK=mean(DUAL_TASK,2);
+
+corpersb_norm=corpersb-corpersb(:,1);
+
+FDR=FDR';
+
+FDRTOTAL=(mean(MEAN_BASELINE)-mean(MEAN_DUAL_TASK))^2/(var(MEAN_BASELINE)+var(MEAN_DUAL_TASK));
+
+BASELINE=[BASELINE MEAN_BASELINE];
+
+
+
+
+% FDRS
+
+
+
+
+
+
+
+
+
+
+
+
+
+
